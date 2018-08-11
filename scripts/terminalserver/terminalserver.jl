@@ -1,5 +1,7 @@
 module _vscodeserver
 
+import Sockets
+
 @static if VERSION < v"0.7.0-DEV.357"
     function remlineinfo!(x)
         if isa(x, Expr)
@@ -36,7 +38,7 @@ end
 import Base: display, redisplay
 global active_module = :Main
 
-struct InlineDisplay <: Display end
+struct InlineDisplay <: AbstractDisplay end
 
 pid = Base.ARGS[1]
 Base.ENV["JULIA_EDITOR"] = Base.ARGS[2]
@@ -70,7 +72,7 @@ function change_module(newmodule::String, print_change = true)
         else
             ret = :(  )
         end
-        out = connect(to_vscode)
+        out = Sockets.connect(to_vscode)
         write(out, string("repl/variables,", getVariables(), "\n"))
         close(out)
         return ret
@@ -106,14 +108,14 @@ function getVariables()
 end
 
 function generate_pipe_name(name)
-    if is_windows()
+    if Sys.iswindows()
         "\\\\.\\pipe\\vscode-language-julia-$name-$pid"
-    elseif is_unix()
+    elseif Sys.islinux()
         joinpath(tempdir(), "vscode-language-julia-$name-$pid")
     end
 end
 
-!(is_unix() || is_windows()) && error("Unknown operating system.")
+!(Sys.islinux() || Sys.iswindows()) && error("Unknown operating system.")
 
 global_lock_socket_name = generate_pipe_name("terminal")
 from_vscode = generate_pipe_name("torepl")
@@ -136,7 +138,7 @@ end
             ms = get_available_modules(current_module())
             redirect_stderr(oSTDERR)
             names = unique(sort(string.(ms)))
-            out = connect(to_vscode)
+            out = Sockets.connect(to_vscode)
             write(out, string("repl/returnModules,", join(names, ","), "\n"))
             close(out)
         elseif cmd == "repl/changeModule"
@@ -146,14 +148,14 @@ end
             ex = Expr(:call, :include, strip(text, '\n'))
             cmod.eval(ex)
         elseif cmd == "repl/getVariables"
-            out = connect(to_vscode)
+            out = Sockets.connect(to_vscode)
             write(out, getVariables())
             close(out)
         end
     end
 end
 
-conn = connect(global_lock_socket_name)
+conn = Sockets.connect(global_lock_socket_name)
 
 function display(d::InlineDisplay, ::MIME{Symbol("image/png")}, x)
     payload = stringmime(MIME("image/png"), x)
