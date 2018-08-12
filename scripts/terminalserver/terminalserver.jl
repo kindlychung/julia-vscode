@@ -1,6 +1,10 @@
 module _vscodeserver
 
 import Sockets
+import Sockets: accept, listen, connect
+
+using Base64 
+using REPL
 
 @static if VERSION < v"0.7.0-DEV.357"
     function remlineinfo!(x)
@@ -56,18 +60,18 @@ function change_module(newmodule::String, print_change = true)
             return
         end
     end
-    expr = parse(newmodule)
+    expr = Meta.parse(newmodule)
     active_module = expr
     repl = Base.active_repl
     main_mode = repl.interface.modes[1]
     main_mode.prompt = string(newmodule,"> ")
-    main_mode.on_done = Base.REPL.respond(repl,main_mode; pass_empty = false) do line
+    main_mode.on_done = REPL.respond(repl,main_mode; pass_empty = false) do line
         if !isempty(line)
-            ex = parse(line)
+            ex = Meta.parse(line)
             if ex isa Expr && ex.head == :module
-                ret = :( eval($expr, Expr(:(=), :ans, Expr(:toplevel, parse($line)))) )    
+                ret = :( Core.eval($expr, Expr(:(=), :ans, Expr(:toplevel, Meta.parse($line)))) )    
             else
-                ret = :( eval($expr, Expr(:(=), :ans, parse($line))) )    
+                ret = :( Core.eval($expr, Expr(:(=), :ans, Meta.parse($line))) )    
             end
         else
             ret = :(  )
@@ -79,7 +83,7 @@ function change_module(newmodule::String, print_change = true)
     end
     print(" \r ")
     print_change && println("Changed root module to $expr")
-    print_with_color(:green, string(newmodule,"> "), bold = true)
+    printstyled(:green, string(newmodule,"> "), bold = true)
 end
 
 function get_available_modules(m=Main, out = Module[])
@@ -95,7 +99,7 @@ function get_available_modules(m=Main, out = Module[])
 end
 
 function getVariables()
-    M = current_module()
+    M = @__MODULE__()
     variables = []
     msg = ""
     for n in names(M)
@@ -133,9 +137,9 @@ end
         !startswith(cmd, "repl/") && continue
         text = readuntil(sock, "repl/endMessage")[1:end-15]
         if cmd == "repl/getAvailableModules"
-            oSTDERR = STDERR
+            oSTDERR = stderr
             redirect_stderr()
-            ms = get_available_modules(current_module())
+            ms = get_available_modules(@__MODULE__())
             redirect_stderr(oSTDERR)
             names = unique(sort(string.(ms)))
             out = Sockets.connect(to_vscode)
@@ -144,9 +148,9 @@ end
         elseif cmd == "repl/changeModule"
             change_module(strip(text, '\n'))
         elseif cmd == "repl/include"
-            cmod = eval(active_module)
+            cmod = Core.eval(active_module)
             ex = Expr(:call, :include, strip(text, '\n'))
-            cmod.eval(ex)
+            cmod.Core.eval(ex)
         elseif cmd == "repl/getVariables"
             out = Sockets.connect(to_vscode)
             write(out, getVariables())
@@ -192,13 +196,13 @@ Base.Multimedia.istextmime(::MIME{Symbol("juliavscode/html")}) = true
 displayable(d::InlineDisplay, ::MIME{Symbol("juliavscode/html")}) = true
 
 function display(d::InlineDisplay, x)
-    if mimewritable("juliavscode/html", x)
+    if Base.showable("juliavscode/html", x)
         display(d,"juliavscode/html", x)
-    # elseif mimewritable("text/html", x)
+    # elseif showable("text/html", x)
     #     display(d,"text/html", x)
-    elseif mimewritable("image/svg+xml", x)
+    elseif showable("image/svg+xml", x)
         display(d,"image/svg+xml", x)
-    elseif mimewritable("image/png", x)
+    elseif showable("image/png", x)
         display(d,"image/png", x)
     else
         throw(MethodError(display,(d,x)))
